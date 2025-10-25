@@ -149,6 +149,10 @@ func handleWebhook(c *gin.Context) {
 		return
 	}
 
+	// Debug logging
+	log.Printf("Received webhook - UpdateID: %d, MessageID: %d, ChatID: %d, Text: '%s', Photos: %d",
+		update.UpdateID, update.Message.MessageID, update.Message.Chat.ID, update.Message.Text, len(update.Message.Photo))
+
 	// Check if message has photos
 	if len(update.Message.Photo) > 0 {
 		// Get the largest photo (last in the array)
