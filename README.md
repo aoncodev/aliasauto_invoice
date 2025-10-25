@@ -1,11 +1,12 @@
 # Telegram AI Bot with Go & Gin
 
-A Telegram bot that automatically extracts text from images using OpenAI's Vision API. When someone uploads an image in a group where the bot is present, it will analyze the image and reply with any readable text found (VIN numbers, license plates, etc.).
+A Telegram bot that automatically extracts text from images and PDF documents using OpenAI's AI models. When someone uploads an image or PDF in a group where the bot is present, it will analyze the content and reply with any readable text found (VIN numbers, license plates, document content, etc.).
 
 ## 🚀 Features
 
 - **Automatic Image Processing**: Detects uploaded images in Telegram groups
-- **AI-Powered Text Extraction**: Uses OpenAI GPT-4o Vision to extract text from images
+- **PDF Document Support**: Processes PDF files and extracts text content
+- **AI-Powered Text Extraction**: Uses OpenAI GPT-4o Vision for images and GPT-4o for PDFs
 - **Smart Error Handling**: Provides user-friendly error messages
 - **Cloud-Ready**: Designed for easy deployment on Render
 - **Webhook-Based**: Efficient real-time processing
@@ -177,12 +178,16 @@ Telegram webhook endpoint
 2. **Image without Text**: Upload an image with no readable text
 3. **Blurry Image**: Test with low-quality images
 4. **Multiple Images**: Test with images containing multiple text elements
-5. **Error Handling**: Test with invalid images or API failures
+5. **PDF Documents**: Upload PDF files with text content
+6. **Large PDFs**: Test with multi-page PDF documents
+7. **Error Handling**: Test with invalid images, PDFs, or API failures
 
 ### Expected Behaviors
 
 - ✅ Extracts and returns readable text from clear images
+- ✅ Extracts text content from PDF documents
 - ✅ Handles images with no text gracefully
+- ✅ Handles PDFs with no readable text gracefully
 - ✅ Provides user-friendly error messages
 - ✅ Logs detailed errors for debugging
 
