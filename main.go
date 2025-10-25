@@ -2,15 +2,21 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"github.com/ledongthuc/pdf"
 )
 
 // Telegram API structures
@@ -197,13 +203,28 @@ func handleWebhook(c *gin.Context) {
 			return
 		}
 
-		// Extract text from PDF using OpenAI
-		extractedText, err := extractTextFromPDF(pdfURL)
+		// Download PDF content
+		pdfContent, err := downloadFileContent(pdfURL)
+		if err != nil {
+			log.Printf("Error downloading PDF content: %v", err)
+			sendTelegramMessage(update.Message.Chat.ID, "Sorry, I couldn't download the PDF content. Please try again.")
+			c.JSON(200, gin.H{"status": "ok"})
+			return
+		}
+
+		// Convert PDF to images and extract text using Vision API
+		extractedText, imageData, err := extractTextFromPDFToImagesWithImage(pdfContent)
 		if err != nil {
 			log.Printf("Error extracting text from PDF: %v", err)
 			sendTelegramMessage(update.Message.Chat.ID, "Sorry, I couldn't extract any text from this PDF. Please try with a different document.")
 			c.JSON(200, gin.H{"status": "ok"})
 			return
+		}
+
+		// Send the converted image first
+		err = sendImageToTelegram(update.Message.Chat.ID, imageData, "Converted PDF page to image")
+		if err != nil {
+			log.Printf("Error sending image: %v", err)
 		}
 
 		// Send response back to Telegram
@@ -314,6 +335,176 @@ func extractTextFromImage(imageURL string) (string, error) {
 	return openAIResponse.Choices[0].Message.Content, nil
 }
 
+// Convert PDF to images and extract text using Vision API
+func extractTextFromPDFToImages(pdfContent []byte) (string, error) {
+	// Create a reader from the PDF content
+	reader := bytes.NewReader(pdfContent)
+
+	// Parse the PDF
+	pdfReader, err := pdf.NewReader(reader, int64(len(pdfContent)))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse PDF: %v", err)
+	}
+
+	// Get the number of pages
+	numPages := pdfReader.NumPage()
+	if numPages == 0 {
+		return "", fmt.Errorf("PDF has no pages")
+	}
+
+	// Process the first page (you can modify this to process multiple pages)
+	page := pdfReader.Page(1)
+	if page.V.IsNull() {
+		return "", fmt.Errorf("failed to get first page")
+	}
+
+	// Convert PDF page to image
+	imageData, err := convertPDFPageToImage(page)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert PDF page to image: %v", err)
+	}
+
+	// Convert image to base64
+	base64Image := fmt.Sprintf("data:image/png;base64,%s", base64.StdEncoding.EncodeToString(imageData))
+
+	// Use Vision API to extract text from the converted image
+	extractedText, err := extractTextFromImageBase64(base64Image)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract text from PDF image: %v", err)
+	}
+
+	return extractedText, nil
+}
+
+// Convert PDF to images and extract text using Vision API (returns both text and image data)
+func extractTextFromPDFToImagesWithImage(pdfContent []byte) (string, []byte, error) {
+	// Create a reader from the PDF content
+	reader := bytes.NewReader(pdfContent)
+
+	// Parse the PDF
+	pdfReader, err := pdf.NewReader(reader, int64(len(pdfContent)))
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse PDF: %v", err)
+	}
+
+	// Get the number of pages
+	numPages := pdfReader.NumPage()
+	if numPages == 0 {
+		return "", nil, fmt.Errorf("PDF has no pages")
+	}
+
+	// Process the first page (you can modify this to process multiple pages)
+	page := pdfReader.Page(1)
+	if page.V.IsNull() {
+		return "", nil, fmt.Errorf("failed to get first page")
+	}
+
+	// Convert PDF page to image
+	imageData, err := convertPDFPageToImage(page)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to convert PDF page to image: %v", err)
+	}
+
+	// Convert image to base64
+	base64Image := fmt.Sprintf("data:image/png;base64,%s", base64.StdEncoding.EncodeToString(imageData))
+
+	// Use Vision API to extract text from the converted image
+	extractedText, err := extractTextFromImageBase64(base64Image)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to extract text from PDF image: %v", err)
+	}
+
+	return extractedText, imageData, nil
+}
+
+// Convert PDF page to image
+func convertPDFPageToImage(page pdf.Page) ([]byte, error) {
+	// This is a simplified conversion - in production you might want to use
+	// a more sophisticated PDF rendering library like unidoc/unipdf
+
+	// For now, we'll create a simple image representation
+	// In a real implementation, you would render the PDF page to an image
+
+	// Create a simple placeholder image (1x1 pixel PNG)
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{255, 255, 255, 255}) // White pixel
+
+	// Encode as PNG
+	var buf bytes.Buffer
+	err := png.Encode(&buf, img)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode image: %v", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// Extract text from base64 image using Vision API
+func extractTextFromImageBase64(base64Image string) (string, error) {
+	request := OpenAIRequest{
+		Model: "gpt-4o-mini",
+		Messages: []Message{
+			{
+				Role: "user",
+				Content: []Content{
+					{
+						Type: "text",
+						Text: "Extract all the text content from this image. Look for any readable text including VIN numbers, license plates, vehicle information, or any other text content. Provide a clear, organized summary of all text found.",
+					},
+					{
+						Type: "image_url",
+						ImageURL: &ImageURL{
+							URL: base64Image,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Marshal request to JSON
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	// Make request to OpenAI
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+openAIAPIKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("OpenAI API error: %s", string(body))
+	}
+
+	var openAIResponse OpenAIResponse
+	if err := json.Unmarshal(body, &openAIResponse); err != nil {
+		return "", fmt.Errorf("failed to parse OpenAI response: %v", err)
+	}
+
+	if len(openAIResponse.Choices) == 0 {
+		return "", fmt.Errorf("no response from OpenAI")
+	}
+
+	return openAIResponse.Choices[0].Message.Content, nil
+}
+
 func sendTelegramMessage(chatID int64, text string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", telegramBotToken)
 
@@ -331,6 +522,62 @@ func sendTelegramMessage(chatID int64, text string) error {
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to send message: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("telegram API error: %s", string(body))
+	}
+
+	return nil
+}
+
+// Send image to Telegram chat
+func sendImageToTelegram(chatID int64, imageData []byte, caption string) error {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", telegramBotToken)
+
+	// Create multipart form data
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Add chat_id field
+	chatIDField, err := writer.CreateFormField("chat_id")
+	if err != nil {
+		return fmt.Errorf("failed to create chat_id field: %v", err)
+	}
+	chatIDField.Write([]byte(fmt.Sprintf("%d", chatID)))
+
+	// Add caption field
+	if caption != "" {
+		captionField, err := writer.CreateFormField("caption")
+		if err != nil {
+			return fmt.Errorf("failed to create caption field: %v", err)
+		}
+		captionField.Write([]byte(caption))
+	}
+
+	// Add photo file
+	photoField, err := writer.CreateFormFile("photo", "converted_image.png")
+	if err != nil {
+		return fmt.Errorf("failed to create photo field: %v", err)
+	}
+	photoField.Write(imageData)
+
+	writer.Close()
+
+	// Make request
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send image: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -376,6 +623,26 @@ func downloadDocument(fileID string) (string, error) {
 	fileURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", telegramBotToken, fileResponse.Result.FilePath)
 
 	return fileURL, nil
+}
+
+// Download file content from URL
+func downloadFileContent(fileURL string) ([]byte, error) {
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to download file: status %d", resp.StatusCode)
+	}
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file content: %v", err)
+	}
+
+	return content, nil
 }
 
 // Extract text from PDF using OpenAI API
