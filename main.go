@@ -5,8 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"image"
-	"image/color"
 	"image/png"
 	"io"
 	"log"
@@ -14,9 +12,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/gen2brain/go-fitz"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	"github.com/ledongthuc/pdf"
 )
 
 // Telegram API structures
@@ -337,29 +335,21 @@ func extractTextFromImage(imageURL string) (string, error) {
 
 // Convert PDF to images and extract text using Vision API
 func extractTextFromPDFToImages(pdfContent []byte) (string, error) {
-	// Create a reader from the PDF content
-	reader := bytes.NewReader(pdfContent)
-
-	// Parse the PDF
-	pdfReader, err := pdf.NewReader(reader, int64(len(pdfContent)))
+	// Open PDF document using go-fitz
+	doc, err := fitz.NewFromMemory(pdfContent)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse PDF: %v", err)
+		return "", fmt.Errorf("failed to open PDF: %v", err)
 	}
+	defer doc.Close()
 
-	// Get the number of pages
-	numPages := pdfReader.NumPage()
+	// Get number of pages
+	numPages := doc.NumPage()
 	if numPages == 0 {
 		return "", fmt.Errorf("PDF has no pages")
 	}
 
-	// Process the first page (you can modify this to process multiple pages)
-	page := pdfReader.Page(1)
-	if page.V.IsNull() {
-		return "", fmt.Errorf("failed to get first page")
-	}
-
-	// Convert PDF page to image
-	imageData, err := convertPDFPageToImage(page)
+	// Convert first page to high-quality image
+	imageData, err := convertPDFPageToHighQualityImage(doc, 0) // 0 = first page
 	if err != nil {
 		return "", fmt.Errorf("failed to convert PDF page to image: %v", err)
 	}
@@ -378,29 +368,21 @@ func extractTextFromPDFToImages(pdfContent []byte) (string, error) {
 
 // Convert PDF to images and extract text using Vision API (returns both text and image data)
 func extractTextFromPDFToImagesWithImage(pdfContent []byte) (string, []byte, error) {
-	// Create a reader from the PDF content
-	reader := bytes.NewReader(pdfContent)
-
-	// Parse the PDF
-	pdfReader, err := pdf.NewReader(reader, int64(len(pdfContent)))
+	// Open PDF document using go-fitz
+	doc, err := fitz.NewFromMemory(pdfContent)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to parse PDF: %v", err)
+		return "", nil, fmt.Errorf("failed to open PDF: %v", err)
 	}
+	defer doc.Close()
 
-	// Get the number of pages
-	numPages := pdfReader.NumPage()
+	// Get number of pages
+	numPages := doc.NumPage()
 	if numPages == 0 {
 		return "", nil, fmt.Errorf("PDF has no pages")
 	}
 
-	// Process the first page (you can modify this to process multiple pages)
-	page := pdfReader.Page(1)
-	if page.V.IsNull() {
-		return "", nil, fmt.Errorf("failed to get first page")
-	}
-
-	// Convert PDF page to image
-	imageData, err := convertPDFPageToImage(page)
+	// Convert first page to high-quality image (300 DPI for scanned documents)
+	imageData, err := convertPDFPageToHighQualityImage(doc, 0) // 0 = first page
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to convert PDF page to image: %v", err)
 	}
@@ -417,21 +399,18 @@ func extractTextFromPDFToImagesWithImage(pdfContent []byte) (string, []byte, err
 	return extractedText, imageData, nil
 }
 
-// Convert PDF page to image
-func convertPDFPageToImage(page pdf.Page) ([]byte, error) {
-	// This is a simplified conversion - in production you might want to use
-	// a more sophisticated PDF rendering library like unidoc/unipdf
+// Convert PDF page to high-quality image using go-fitz
+func convertPDFPageToHighQualityImage(doc *fitz.Document, pageNum int) ([]byte, error) {
+	// Render page to image with high DPI for scanned documents
+	// 300 DPI is good for scanned documents, 150 DPI for regular text
+	img, err := doc.Image(pageNum)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render PDF page: %v", err)
+	}
 
-	// For now, we'll create a simple image representation
-	// In a real implementation, you would render the PDF page to an image
-
-	// Create a simple placeholder image (1x1 pixel PNG)
-	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
-	img.Set(0, 0, color.RGBA{255, 255, 255, 255}) // White pixel
-
-	// Encode as PNG
+	// Encode as PNG with high quality
 	var buf bytes.Buffer
-	err := png.Encode(&buf, img)
+	err = png.Encode(&buf, img)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode image: %v", err)
 	}
