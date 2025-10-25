@@ -194,7 +194,7 @@ func handleWebhook(c *gin.Context) {
 		log.Printf("Text extracted successfully: %s", extractedData)
 
 		// Send response back to Telegram
-		responseText := fmt.Sprintf("🔍 **Extracted data from image:**\n\n```json\n%s\n```", extractedData)
+		responseText := fmt.Sprintf("🔍 **Extracted text from image:**\n\n%s", extractedData)
 		log.Printf("Sending response to Telegram chat %d", update.Message.Chat.ID)
 		sendTelegramMessage(update.Message.Chat.ID, responseText)
 		c.JSON(200, gin.H{"status": "ok"})
@@ -278,7 +278,7 @@ func handleTestImage(c *gin.Context) {
 	}
 
 	// Send extracted data to Telegram
-	responseText := fmt.Sprintf("🔍 **Extracted data from image (%s):**\n\n```json\n%s\n```", file.Filename, extractedData)
+	responseText := fmt.Sprintf("🔍 **Extracted text from image (%s):**\n\n%s", file.Filename, extractedData)
 	err = sendTelegramMessage(chatID, responseText)
 	if err != nil {
 		log.Printf("Error sending message to Telegram: %v", err)
@@ -335,7 +335,7 @@ func extractTextFromImage(imageURL string) (string, error) {
 				Content: []Content{
 					{
 						Type: "text",
-						Text: "Extract all visible text from this image and return it as a structured JSON object. Look for VIN numbers, license plates, vehicle information, addresses, names, or any other readable text. Return the data in this exact JSON format: {\"vin\": \"extracted_vin_or_null\", \"license_plate\": \"extracted_plate_or_null\", \"vehicle_info\": \"any_vehicle_details\", \"address\": \"any_address_found\", \"other_text\": \"any_other_readable_text\"}. If a field is not found, use null. Only return valid JSON, no other text.",
+						Text: "Extract any text visible in this image, including VIN numbers, license plates, or any other readable text. If you find multiple pieces of text, list them clearly.",
 					},
 					{
 						Type: "image_url",
@@ -396,7 +396,7 @@ func extractTextFromImageBase64(base64Image string) (string, error) {
 				Content: []Content{
 					{
 						Type: "text",
-						Text: "Extract all visible text from this image and return it as a structured JSON object. Look for VIN numbers, license plates, vehicle information, addresses, names, or any other readable text. Return the data in this exact JSON format: {\"vin\": \"extracted_vin_or_null\", \"license_plate\": \"extracted_plate_or_null\", \"vehicle_info\": \"any_vehicle_details\", \"address\": \"any_address_found\", \"other_text\": \"any_other_readable_text\"}. If a field is not found, use null. Only return valid JSON, no other text.",
+						Text: "Extract any text visible in this image, including VIN numbers, license plates, or any other readable text. If you find multiple pieces of text, list them clearly.",
 					},
 					{
 						Type: "image_url",
