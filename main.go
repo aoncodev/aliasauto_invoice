@@ -155,11 +155,23 @@ func handleWebhook(c *gin.Context) {
 
 	// Check if message has photos
 	if len(update.Message.Photo) > 0 {
-		// Get the largest photo (last in the array)
-		largestPhoto := update.Message.Photo[len(update.Message.Photo)-1]
+		log.Printf("Processing photo - Available photos: %d", len(update.Message.Photo))
+
+		// Get the last uploaded photo (most recent/highest quality)
+		latestPhoto := update.Message.Photo[len(update.Message.Photo)-1]
+
+		log.Printf("Selected latest photo - FileID: %s, FileSize: %d", latestPhoto.FileID, latestPhoto.FileSize)
+
+		// Validate we have a valid photo
+		if latestPhoto.FileID == "" {
+			log.Printf("No valid photo found")
+			c.JSON(200, gin.H{"status": "ok"})
+			return
+		}
 
 		// Download image from Telegram
-		imageURL, err := downloadImage(largestPhoto.FileID)
+		log.Printf("Downloading image with FileID: %s", latestPhoto.FileID)
+		imageURL, err := downloadImage(latestPhoto.FileID)
 		if err != nil {
 			log.Printf("Error downloading image: %v", err)
 			sendTelegramMessage(update.Message.Chat.ID, "Sorry, I couldn't download the image. Please try again.")
@@ -167,7 +179,10 @@ func handleWebhook(c *gin.Context) {
 			return
 		}
 
+		log.Printf("Image downloaded successfully: %s", imageURL)
+
 		// Extract text using OpenAI Vision API
+		log.Printf("Sending image to OpenAI for text extraction...")
 		extractedData, err := extractTextFromImage(imageURL)
 		if err != nil {
 			log.Printf("Error extracting text: %v", err)
@@ -176,8 +191,11 @@ func handleWebhook(c *gin.Context) {
 			return
 		}
 
+		log.Printf("Text extracted successfully: %s", extractedData)
+
 		// Send response back to Telegram
 		responseText := fmt.Sprintf("🔍 **Extracted data from image:**\n\n```json\n%s\n```", extractedData)
+		log.Printf("Sending response to Telegram chat %d", update.Message.Chat.ID)
 		sendTelegramMessage(update.Message.Chat.ID, responseText)
 		c.JSON(200, gin.H{"status": "ok"})
 		return
