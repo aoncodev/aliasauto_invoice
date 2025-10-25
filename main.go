@@ -468,6 +468,19 @@ func sendTelegramMessage(chatID int64, text string) error {
 	}
 	defer resp.Body.Close()
 
+	// Check response status
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("telegram API error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	// Log response for debugging
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read telegram response: %v", err)
+	}
+
+	log.Printf("Telegram API response: %s", string(body))
 	return nil
 }
 
